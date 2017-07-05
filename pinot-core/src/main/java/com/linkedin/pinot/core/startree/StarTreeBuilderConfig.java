@@ -37,7 +37,7 @@ public class StarTreeBuilderConfig {
   private Set<String> skipMaterializationForDimensions;
   private int skipMaterializationCardinalityThreshold =
       StarTreeIndexSpec.DEFAULT_SKIP_MATERIALIZATION_CARDINALITY_THRESHOLD;
-  private boolean enableOffHealpFormat;
+  private boolean enableOffHeapFormat;
 
   public StarTreeBuilderConfig() {
   }
@@ -113,15 +113,15 @@ public class StarTreeBuilderConfig {
    * Returns True if StarTreeOffHeap is enabled, false otherwise.
    * @return
    */
-  public boolean isEnableOffHealpFormat() {
-    return enableOffHealpFormat;
+  public boolean isEnableOffHeapFormat() {
+    return enableOffHeapFormat;
   }
 
   /**
    * Enable/Disable StarTreeOffHeap
    * @param enableOffHealpFormat
    */
-  public void setEnableOffHealpFormat(boolean enableOffHealpFormat) {
-    this.enableOffHealpFormat = enableOffHealpFormat;
+  public void setEnableOffHeapFormat(boolean enableOffHeapFormat) {
+    this.enableOffHeapFormat = enableOffHeapFormat;
   }
 }

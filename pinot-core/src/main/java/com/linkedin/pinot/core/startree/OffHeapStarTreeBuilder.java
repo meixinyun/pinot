@@ -133,7 +133,7 @@ public class OffHeapStarTreeBuilder implements StarTreeBuilder {
     skipStarNodeCreationForDimensions = builderConfig.getSkipStarNodeCreationForDimensions();
     skipMaterializationForDimensions = builderConfig.getSkipMaterializationForDimensions();
     skipMaterializationCardinalityThreshold = builderConfig.getSkipMaterializationCardinalityThreshold();
-    enableOffHeapFormat = builderConfig.isEnableOffHealpFormat();
+    enableOffHeapFormat = builderConfig.isEnableOffHeapFormat();
 
     this.maxLeafRecords = builderConfig.maxLeafRecords;
     this.outDir = builderConfig.getOutDir();
@@ -326,9 +326,20 @@ public class OffHeapStarTreeBuilder implements StarTreeBuilder {
     long start = System.currentTimeMillis();
     dataBuffer.flush();
     // Sort the data based on default sort order (split order + remaining dimensions)
-    sort(dataFile, 0, rawRecordCount);
-    // Recursively construct the star tree, continuously sorting the data
-    constructStarTree(starTreeRootIndexNode, 0, rawRecordCount, 0, dataFile);
+    int startDocId = 0;
+    int endDocId = rawRecordCount;
+    int level = 0;
+    if (!skipMaterializationForDimensions.isEmpty()) {
+      // remove the high cardinality items
+      removeHighCardinalityDimensions(dataFile, startDocId, endDocId, skipMaterializationForDimensions);
+      dataBuffer.flush();
+      // Recursively construct the star tree 
+      constructStarTree(starTreeRootIndexNode, endDocId, endDocId+ aggRecordCount, level, dataFile);
+    } else {
+      sort(dataFile, startDocId, endDocId);
+      // Recursively construct the star tree, continuously sorting the data
+      constructStarTree(starTreeRootIndexNode, startDocId, endDocId, level, dataFile);
+    }
 
     // Split the leaf nodes on time column. This is only possible if we have not split on time-column name
     // yet, and time column is still preserved (ie not replaced by StarTreeNode.all()).
@@ -341,7 +352,7 @@ public class OffHeapStarTreeBuilder implements StarTreeBuilder {
     createAggDocForAllNodes(starTreeRootIndexNode);
     long end = System.currentTimeMillis();
     LOG.info("Took {} ms to build star tree index. Original records:{} Materialized record:{}",
-        (end - start), rawRecordCount, aggRecordCount);
+        (end - start), endDocId, aggRecordCount);
     starTree = new StarTree(starTreeRootIndexNode, dimensionNameToIndexMap);
     File treeBinary = new File(outDir, "star-tree.bin");
 
@@ -353,9 +364,48 @@ public class OffHeapStarTreeBuilder implements StarTreeBuilder {
       StarTreeSerDe.writeTreeOnHeapFormat(starTree, treeBinary);
     }
 
-    printTree(starTreeRootIndexNode, 0);
+    printTree(starTreeRootIndexNode, startDocId);
     LOG.info("Finished build tree. out dir: {} ", outDir);
     dataBuffer.close();
+  }
+
+  private void removeHighCardinalityDimensions(File dataFile, int startDocId, int endDocId,
+      Set<String> skipMaterializationForDimensions) throws Exception {
+
+    // sort the data first on sorted columns and then on
+    sort(dataFile, startDocId, endDocId);
+    StarTreeDataTable table =
+        new StarTreeDataTable(dataFile, dimensionSizeBytes, metricSizeBytes, null);
+    Iterator<Pair<byte[], byte[]>> iterator = table.iterator(startDocId, endDocId);
+    Pair<DimensionBuffer, MetricBuffer> prev = null;
+    int recordsAdded = 0;
+    while (iterator.hasNext()) {
+      Pair<byte[], byte[]> next = iterator.next();
+      byte[] dimensionBytes = next.getLeft();
+      byte[] metricBytes = next.getRight();
+      DimensionBuffer dimensionBuffer = DimensionBuffer.fromBytes(dimensionBytes);
+      MetricBuffer metricBuffer = MetricBuffer.fromBytes(metricBytes, schema.getMetricFieldSpecs());
+      for (int i = 0; i < numDimensions; i++) {
+        String dimensionName = dimensionNameToIndexMap.inverse().get(i);
+        if (skipMaterializationForDimensions.contains(dimensionName)) {
+          dimensionBuffer.setDimension(i, StarTreeIndexNodeInterf.ALL);
+        }
+      }
+
+      if (prev == null) {
+        prev = Pair.of(dimensionBuffer, metricBuffer);
+      } else {
+        Pair<DimensionBuffer, MetricBuffer> current = Pair.of(dimensionBuffer, metricBuffer);
+        if (!current.getLeft().equals(prev.getLeft())) {
+          appendToAggBuffer(prev.getLeft(), prev.getRight());
+          prev = current;
+          recordsAdded++;
+        } else {
+          prev.getRight().aggregate(current.getRight());
+        }
+      }
+    }
+    LOG.info("Aggregated records added after removing high cardinality dimensions: {} ", recordsAdded);
   }
 
   /**

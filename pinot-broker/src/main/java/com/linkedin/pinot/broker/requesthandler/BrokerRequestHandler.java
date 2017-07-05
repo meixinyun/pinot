@@ -84,7 +84,7 @@ public class BrokerRequestHandler {
 
   private static final int DEFAULT_BROKER_QUERY_RESPONSE_LIMIT = Integer.MAX_VALUE;
   private static final String BROKER_QUERY_RESPONSE_LIMIT_CONFIG = "pinot.broker.query.response.limit";
-  public static final long DEFAULT_BROKER_TIME_OUT_MS = 10 * 1000L;
+  public static final long DEFAULT_BROKER_TIME_OUT_MS = 100 * 1000L;
   private static final String BROKER_TIME_OUT_CONFIG = "pinot.broker.timeoutMs";
   private static final String DEFAULT_BROKER_ID;
   public static final String BROKER_ID_CONFIG_KEY = "pinot.broker.id";
